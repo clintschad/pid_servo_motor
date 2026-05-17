@@ -1,6 +1,8 @@
 # PID Servo Motor
 INSERT GIF OR VIDEO OF FINAL PROJECT
 
+![title](/docs/images/setup_rev2.jpeg)
+
 Implement position control of a brushed DC motor using PID control on physical hardware.
 
 ## Overview
