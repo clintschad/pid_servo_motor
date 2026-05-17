@@ -1,20 +1,26 @@
 /* 
- * Sketch for servo motor using 775 DC motor and optical rotary encoder. 
+ * Sketch for DC servo motor controller.
  */
 
-#include <Encoder.h>
+#include "AS5600.h"
 #include <DueFlashStorage.h>
 
-#define ENCODER_USE_INTERRUPTS
 #define NVM_STORAGE_ADDR 0 // Using NVM flash address 0 for saving angle and PID variables
 
 /* VARIABLES */
 
-// ANGLE SENSOR/ENCODER
-long oldPosition = -999;
-long newPosition = -999;
-float angleMeasured_deg = 0.0;
-Encoder myEnc(2, 3);
+// PID
+unsigned long lastTime_ms;
+float motor_cmd;          // PID output
+float angleDesired_deg;   // PID setpoint
+float error;              // Used for P control
+float errSum;             // Used for I control
+// float dErr;
+// float lastErr;
+float kp;
+float ki;
+float kd;
+int SampleTime_ms = 5; // 5 ms is good
 
 // MOTOR
 int enA = 9; // speed pin
@@ -22,13 +28,9 @@ int in1 = 8; // dir   pin
 int in2 = 7; // dir   pin
 uint8_t finalMotorCmd = 0; // Value to pin to motor driver
 
-// PID
-unsigned long lastTime_ms;
-float motor_cmd;          // PID output
-float angleDesired_deg;   // PID setpoint
-float errSum, lastErr;
-float kp, ki, kd;
-int SampleTime_ms = 1; // 1 ms
+// SENSOR
+AS5600 as5600;   //  use default Wire
+float angleMeasured_deg = 0.0;
 
 // SERIAL COMMUNICATION
 const byte numChars = 10;
@@ -40,15 +42,18 @@ const char pcCmdAngle[] = "angle";
 const char pcCmdP[]     = "p";
 const char pcCmdI[]     = "i";
 const char pcCmdD[]     = "d";
-const char pcCmdCal[]   = "cal";
+// const char pcCmdCal[]   = "cal";
 const char pcCmdSave[]  = "save";
 float pcCmdValue = 0;               // Value from keyboard to set
 
 // FLASH NVM
+// NOTES ABOUT SAVING
+// Remember to run the save cmd to save desired angle and pid values.
+// Might need to cycle power (unplug/replug) board if code change is made
+// to re-enable NVM saving.
 DueFlashStorage dueFlashStorage;  // Create flash storage object
 struct config {
   uint8_t initStatus;             // Flash is 255 at first run. Set initStatus to 
-  float   savedMeasuredAngle;     // indicate values have been initialized
   float   savedDesiredAngle;
   float   savedKp;
   float   savedKi;
@@ -60,42 +65,116 @@ uint8_t tempConfig[sizeof(configToNvm)]; // Temporary u8 array to store struct
                                          // when reading/writing to NVM
 uint8_t* b; // pointer for reading from NVM
 
-void setup() {
+void setup()
+{
+  while(!Serial);
+  Serial.begin(115200);
+  Serial.println();
+  Serial.println(__FILE__);
+  Serial.print("AS5600_LIB_VERSION: ");
+  Serial.println(AS5600_LIB_VERSION);
+  Serial.println();
 
-  // Motor setup
+  // SENSOR
+  Wire.begin();
+  as5600.begin(4);  //  set direction pin.
+  as5600.setDirection(AS5600_COUNTERCLOCK_WISE);  //  default, just be explicit.
+  Serial.println(as5600.getAddress());
+  int b = as5600.isConnected();
+  Serial.print("Connect: ");
+  Serial.println(b);
+
+  // MOTOR
   pinMode(enA, OUTPUT);   // Set all the motor control pins to outputs
   pinMode(in1, OUTPUT);
   pinMode(in2, OUTPUT);
   digitalWrite(in1, LOW); // Turn off motors - Initial state
   digitalWrite(in2, LOW);
-  
-  // Encoder setup
-  pinMode(2, INPUT_PULLUP);
-  pinMode(3, INPUT_PULLUP);
-  Serial.begin(115200);
-  Serial.println("Basic Encoder Test:");
-  
+
   // Load saved angle and PID info from NVM
   loadNvm();
 
+  delay(1000);
 }
 
-void loop() {
 
-  // Get encoder angle
-  getAngle();
+void loop()
+{
+  static uint32_t lastTime = 0;
 
-  // Compute motor command using PID
-  motorPidCmd();
+  //  set initial position
+  as5600.getCumulativePosition();
+  angleMeasured_deg = as5600.getCumulativePosition()*360/4096; // Convert to degrees
 
-  // Run motor
-  runMotor();
+  //  update every 100 ms
+  //  should be enough up to ~200 RPM
+  if (millis() - lastTime >= SampleTime_ms)
+  {
+    lastTime = millis();
 
-  // Get angle and PID values from user if available. Used next loop.
-  getKeyboardInput();
+    // GET ANGLE
+    angleMeasured_deg = as5600.getCumulativePosition()*360/4096; // Convert to degrees
 
-  // Print angle and PID data
-  printData();
+    // COMPUTE MOTOR CMD
+    error = angleDesired_deg - angleMeasured_deg;
+    errSum += error;
+    // dErr = (error - lastErr);
+    // lastErr = error;
+    // DEBUG: STILL FIXING ITERM WINDUP
+    motor_cmd = kp * error + ki * SampleTime_ms * 0.001 * errSum; //  + kd * dErr; // Use PID
+    // P = 5 working well
+
+    if(motor_cmd > 255)
+    {
+      errSum -= error;
+      motor_cmd = 255;
+    }
+    else if(motor_cmd < -255)
+    {
+      errSum -= error;
+      motor_cmd = -255;
+    }
+
+    // RUN MOTOR
+    // Set motor direction
+    if (motor_cmd > 0)      // Pos cmd is CCW
+    {      
+      digitalWrite(in1, HIGH);
+      digitalWrite(in2, LOW);
+    }
+    else if (motor_cmd < 0) // Neg cmd is CW
+    { 
+      digitalWrite(in1, LOW);
+      digitalWrite(in2, HIGH);
+    }
+    else // motor_cmd == 0  // Don't run motor
+    {
+      digitalWrite(in1, LOW);
+      digitalWrite(in2, LOW);
+    }
+
+    // Remove sign since direction has been computed
+    finalMotorCmd = (uint8_t)(abs(motor_cmd));
+
+    // Cap pin cmd to 255, the upper limit of analogWrite
+    if(abs(motor_cmd) > 255) {
+      finalMotorCmd = 255;
+    }
+    else
+    {
+      finalMotorCmd = (uint8_t)(abs(motor_cmd));
+    }
+
+    // Send cmd to motor
+    analogWrite(enA, finalMotorCmd);
+
+    // PRINT DATA
+    printData();
+
+    // GET KEYBOARD INPUT
+    getKeyboardInput();
+
+  }
 
 }
 
@@ -107,10 +186,11 @@ void loadNvm() {
 
   // Flash values by default are 255. When config values are saved,
   // the initStatus is set to 0 to indicate there are saved values.
-  if(configFromNvm.initStatus == 0) { // If there are saved values, load them
-    // Set angles
-    uint32_t savedEncPos = (uint32_t)((configFromNvm.savedMeasuredAngle * 2400)/360); // Convert saved angle to encoder position
-    myEnc.write(savedEncPos);
+
+  // If there are saved values, load them
+  if(configFromNvm.initStatus == 0) 
+  { 
+    // Set saved desired angle
     angleDesired_deg = configFromNvm.savedDesiredAngle;
 
     // Set PID parameters
@@ -124,40 +204,63 @@ void loadNvm() {
 
 }
 
-// Function to read encoder angle
-inline void getAngle() {
+// // Function to compute motor command (PID)
+// inline void motorPidCmd()
+// {
+//   // unsigned long now_ms = millis();
+//   // int timeChange_ms = (now_ms - lastTime_ms);
 
-  newPosition = myEnc.read();
-  if (newPosition != oldPosition) {
-    oldPosition = newPosition;
-    newPosition %= 2400; // Stay within 0 to 360 degrees
-    angleMeasured_deg = ((float)newPosition/2400)*360; // Convert encoder counts to degrees
-  }
+//   // if(timeChange_ms >= SampleTime_ms)
+//   // {
+//     /* Compute all the working error variables */
+//     float error = angleDesired_deg - angleMeasured_deg;
+//     errSum += error;
+//     float dErr = (error - lastErr);
 
-}
+//     /* Compute PID Output */
+//     motor_cmd = kp * error + ki * errSum + kd * dErr;
 
-// Function that prints out angle and PID data
-inline void printData() {
+//     /* Remember some variables for next time */
+//     // lastErr = error;
+//     // lastTime_ms = now_ms;
+//   // }
 
-  Serial.print("Desired Angle: ");
-  Serial.print(angleDesired_deg);
+// }
 
-  Serial.print(", Measured Angle: ");
-  Serial.print(angleMeasured_deg);
+// // Function to command motor
+// inline void runMotor() 
+// {
+//   // Set motor direction
+//   if (motor_cmd > 0)      // Pos cmd is CCW
+//   {      
+//     digitalWrite(in1, HIGH);
+//     digitalWrite(in2, LOW);
+//   }
+//   else if (motor_cmd < 0) // Neg cmd is CW
+//   { 
+//     digitalWrite(in1, LOW);
+//     digitalWrite(in2, HIGH);
+//   }
+//   else // motor_cmd == 0  // Don't run motor
+//   {
+//     digitalWrite(in1, LOW);
+//     digitalWrite(in2, LOW);
+//   }
 
-  Serial.print(", Kp: ");
-  Serial.print(kp);
+//   // Remove sign since direction has been computed
+//   finalMotorCmd = (uint8_t)(abs(motor_cmd));
 
-  Serial.print(", Ki: ");
-  Serial.print(ki);
+//   // Cap pin cmd to 255, the upper limit of analogWrite
+//   if(finalMotorCmd > 255) {
+//     finalMotorCmd = 255;
+//   }
 
-  Serial.print(", Kd: ");
-  Serial.println(kd);
-
-}
+//   // Send cmd to motor
+//   analogWrite(enA, finalMotorCmd);
+// }
 
 // Function that reads angle and PID cmds from serial and sets the appropriate values.
-void getKeyboardInput() {
+inline void getKeyboardInput() {
     static uint8_t ndx = 0;
     char endMarker = '\n';
     char rc;
@@ -203,14 +306,13 @@ void getKeyboardInput() {
         else if(strcmp(pcCmdType, pcCmdD) == 0) {   // if cmd string is "d"
           kd = pcCmdValue;                          // set kd
         }
-        else if(strcmp(pcCmdType, pcCmdCal) == 0) { // if cmd string is "cal"
-          newPosition = myEnc.readAndReset();       // reset measured angle to 0
-        }
+        // else if(strcmp(pcCmdType, pcCmdCal) == 0) { // if cmd string is "cal"
+        //   newPosition = myEnc.readAndReset();       // reset measured angle to 0
+        // }
         else if(strcmp(pcCmdType, pcCmdSave) == 0){ // if cmd string is "save"
 
           configToNvm = {
             .initStatus = 0,
-            .savedMeasuredAngle = angleMeasured_deg,
             .savedDesiredAngle  = angleDesired_deg,
             .savedKp = kp,
             .savedKi = ki,
@@ -229,55 +331,36 @@ void getKeyboardInput() {
     }
 }
 
-// Function to compute motor command (PID)
-void motorPidCmd() {
-  unsigned long now_ms = millis();
-  int timeChange_ms = (now_ms - lastTime_ms);
-  if(timeChange_ms >= SampleTime_ms)
-  {
-    /* Compute all the working error variables */
-    float error = angleDesired_deg - angleMeasured_deg;
-    errSum += error;
-    float dErr = (error - lastErr);
+// Function that prints out angle and PID data
+inline void printData() {
 
-    /* Compute PID Output */
-    motor_cmd = kp * error + ki * errSum + kd * dErr;
+  Serial.print("Desired Angle: ");
+  Serial.print(angleDesired_deg);
 
-    /* Remember some variables for next time */
-    lastErr = error;
-    lastTime_ms = now_ms;
-  }
+  Serial.print("\t Measured Angle: ");
+  Serial.print(angleMeasured_deg);
 
-}
+  Serial.print("\t error: ");
+  Serial.print(error);
 
-// Function to command motor
-void runMotor() {
+  // Serial.print("\t Kp: ");
+  // Serial.print(kp);
 
-  // Set motor direction
-  if (motor_cmd > 0) {      // Pos cmd is CCW
-    digitalWrite(in1, HIGH);
-    digitalWrite(in2, LOW);
-  }
-  else if (motor_cmd < 0) { // Neg cmd is CW
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, HIGH);
-  }
-  else {// motor_cmd == 0   // Don't run motor
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, LOW);
-  }
+  Serial.print("\t Ki: ");
+  Serial.print(ki);
 
-  // Remove sign since direction has been computed
-  finalMotorCmd = (uint8_t)(abs(motor_cmd));
+  Serial.print("\t errSum: ");
+  Serial.print(errSum);
 
-  // Cap pin cmd to 255, the upper limit of analogWrite
-  if(finalMotorCmd > 255) {
-    finalMotorCmd = 255;
-  }
+  // Serial.print("\t Kd: ");
+  // Serial.print(kd);
 
-  // Send cmd to motor
-  analogWrite(enA, finalMotorCmd);
+  Serial.print("\t motor_cmd: ");
+  Serial.print(motor_cmd);
+
+  Serial.print("\t finalMotorCmd: ");
+  Serial.println(finalMotorCmd);
 
 }
 
-// P 200 seems to work well 
+//  -- END OF FILE --
