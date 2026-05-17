@@ -33,7 +33,7 @@ State why for each point.
 
 ## Schematic (how to connect everything)
 
-Placing white board diagram here for now until a proper diagram is made
+Placing white board diagram here for now until a proper diagram is made.
 
 ![title](docs/images/schem_board_diagram.jpeg)
 
