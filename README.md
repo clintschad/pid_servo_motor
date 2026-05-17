@@ -39,6 +39,9 @@ Placing white board diagram here for now until a proper diagram is made.
 
 ## Software
 * See servo_proj/servo_proj.ino file.
+* Used the following Arduino libraries:
+    - [DueFlashStorage](https://github.com/sebnil/DueFlashStorage)
+    - [AS5600](https://github.com/RobTillaart/AS5600)
 
 ## Todo
 Perhaps make another shorter markdown file, which has the minimum amount of information to set up and get everything working. Don't need theory or reasons behind decisions, etc.
