@@ -88,7 +88,7 @@ void loop() {
   // Compute motor command using PID
   motorPidCmd();
 
-  // // Run motor
+  // Run motor
   runMotor();
 
   // Get angle and PID values from user if available. Used next loop.
@@ -279,3 +279,5 @@ void runMotor() {
   analogWrite(enA, finalMotorCmd);
 
 }
+
+// P 200 seems to work well 
