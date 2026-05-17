@@ -33,8 +33,12 @@ State why for each point.
 
 ## Schematic (how to connect everything)
 
+Placing white board diagram here for now until a proper diagram is made
+
+![title](docs/images/schem_board_diagram.jpeg)
+
 ## Software
-* Place here
+* See servo_proj/servo_proj.ino file.
 
 ## Todo
 Perhaps make another shorter markdown file, which has the minimum amount of information to set up and get everything working. Don't need theory or reasons behind decisions, etc.
