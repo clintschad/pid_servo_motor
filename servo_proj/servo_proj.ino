@@ -1,5 +1,17 @@
 /* 
  * Sketch for DC servo motor controller.
+ * 
+ * NOTES
+ * SAVING
+ * Remember to run the save cmd to save desired angle and pid values.
+ * Might need to cycle power (unplug/replug) board if code change is made
+ * to re-enable NVM saving.
+ * AS5600
+ * At the start of the program, if "Connect: 0" appears, this means the 
+ * AS5600 isn't connected. Unplugging/plugging in power to the Arduino
+ * fixes this. Need to try resetting power to the AS5600 itself and see if
+ * this fixes the issue. If so, a software controlled switch could be 
+ * made that resets its power at the start of this program.
  */
 
 #include "AS5600.h"
@@ -47,10 +59,7 @@ const char pcCmdSave[]  = "save";
 float pcCmdValue = 0;               // Value from keyboard to set
 
 // FLASH NVM
-// NOTES ABOUT SAVING
-// Remember to run the save cmd to save desired angle and pid values.
-// Might need to cycle power (unplug/replug) board if code change is made
-// to re-enable NVM saving.
+
 DueFlashStorage dueFlashStorage;  // Create flash storage object
 struct config {
   uint8_t initStatus;             // Flash is 255 at first run. Set initStatus to 
