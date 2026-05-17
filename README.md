@@ -53,3 +53,4 @@ Just give short description of project, specs up front, parts needed, schematic,
 
 ## Resources
 * [Interface L298N DC Motor Driver Module with Arduino (Last Minute Engineers)](https://lastminuteengineers.com/l298n-dc-stepper-driver-arduino-tutorial/)
+* Following Brett Beauregard's [Improving the Beginner's PID](http://brettbeauregard.com/blog/2011/04/improving-the-beginners-pid-introduction/) articles.
