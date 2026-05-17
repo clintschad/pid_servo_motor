@@ -33,7 +33,7 @@ State why for each point.
 * Pulley. Optional. Just need some type of indicator on the end of the motor to observe motor shaft position.
 * Power supply (check the max current and voltage I use)
 
-## Schematic (how to connect everything)
+## System Diagram
 
 Placing white board diagram here for now until a proper diagram is made.
 
